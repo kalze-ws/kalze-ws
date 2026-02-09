@@ -1,6 +1,6 @@
 {
   "name": "kalze-ws",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "WebSocket client for websocket.cl - Real-time connections made easy",
   "type": "module",
   "main": "dist/index.js",

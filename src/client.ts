@@ -46,6 +46,14 @@ export class KalzeChannel implements Channel {
     if (this.state === 'connecting' || this.state === 'connected') {
       return
     }
+
+    if (!this.isValidPublicKey(this.options.key)) {
+      this.emit('error', {
+        code: 4403,
+        message: 'Invalid public API key format. Expected wpk_live_*',
+      })
+      return
+    }
     
     this.state = this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
     this.emit('state:change', { state: this.state })
@@ -129,6 +137,11 @@ export class KalzeChannel implements Channel {
    */
   private handleClose(code: number, reason: string): void {
     this.log(`Connection closed: ${code} - ${reason}`)
+
+    const mappedMessage = this.getCloseReasonMessage(code, reason)
+    if (mappedMessage) {
+      this.emit('error', { code, message: mappedMessage })
+    }
     
     this.stopHeartbeat()
     this.ws = null
@@ -139,7 +152,7 @@ export class KalzeChannel implements Channel {
     this.emit('state:change', { state: this.state })
     
     // Don't reconnect if intentionally closed or server refused
-    if (code === 4000 || code === 4001 || code === 4002 || code === 4999) {
+    if (code === 4000 || code === 4001 || code === 4002 || code === 4401 || code === 4403 || code === 4408 || code === 4999) {
       this.log('Not reconnecting due to error code')
       return
     }
@@ -225,6 +238,27 @@ export class KalzeChannel implements Channel {
   private log(message: string, ...args: unknown[]): void {
     if (this.options.debug) {
       console.log(`[Kalze:${this.name}] ${message}`, ...args)
+    }
+  }
+
+  private isValidPublicKey(key: string): boolean {
+    return /^wpk_live_[A-Za-z0-9_-]{43}$/.test(key)
+  }
+
+  private getCloseReasonMessage(code: number, reason: string): string | null {
+    if (reason) return reason
+
+    switch (code) {
+      case 4401:
+        return 'Missing API key (?key=...)'
+      case 4403:
+        return 'Invalid API key'
+      case 4408:
+        return 'Connection limit exceeded'
+      case 4000:
+        return 'Invalid path. Expected /c/:subdomain/:channel'
+      default:
+        return code >= 4000 ? `Connection rejected (${code})` : null
     }
   }
   

@@ -138,8 +138,10 @@ channel.on('reconnecting', ({ attempt, delay }) => {})
 // Reconnection failed
 channel.on('reconnect:failed', ({ attempts }) => {})
 
-// Error
-channel.on('error', ({ message }) => {})
+// Error (includes error code when applicable)
+channel.on('error', ({ code, message }) => {
+  console.error(code, message)
+})
 ```
 
 ## Multiple Channels
