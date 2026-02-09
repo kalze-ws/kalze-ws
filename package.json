@@ -32,7 +32,7 @@
   "homepage": "https://websocket.cl",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kalze-ws/kalze-ws.git"
+    "url": "git+https://github.com/kalze-ws/kalze-ws.git"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
