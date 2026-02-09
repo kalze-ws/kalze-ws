@@ -41,6 +41,16 @@ export interface KalzeOptions {
    * Enable debug logging (default: false)
    */
   debug?: boolean
+
+  /**
+   * Connection timeout in ms while waiting for server handshake (default: 10000)
+   */
+  connectionTimeoutMs?: number
+
+  /**
+   * Max queued client events before connection is established (default: 100)
+   */
+  maxQueuedMessages?: number
 }
 
 /**
@@ -103,6 +113,7 @@ export interface Channel {
    * Send a client event to the channel
    */
   trigger<T = unknown>(data: T): void
+  trigger<T = unknown>(event: string, data: T): void
   
   /**
    * Disconnect from channel

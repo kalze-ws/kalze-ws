@@ -23,6 +23,8 @@ export class KalzeChannel implements Channel {
   private reconnectAttempts = 0
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null
+  private connectTimeout: ReturnType<typeof setTimeout> | null = null
+  private queuedMessages: Array<{ event: string; data: unknown }> = []
   
   constructor(channelName: string, options: KalzeOptions) {
     this.name = channelName
@@ -34,6 +36,8 @@ export class KalzeChannel implements Channel {
       maxReconnectAttempts: options.maxReconnectAttempts ?? 10,
       reconnectDelay: options.reconnectDelay ?? 1000,
       debug: options.debug ?? false,
+      connectionTimeoutMs: options.connectionTimeoutMs ?? 10000,
+      maxQueuedMessages: options.maxQueuedMessages ?? 100,
     }
     
     this.connect()
@@ -64,6 +68,13 @@ export class KalzeChannel implements Channel {
     
     try {
       this.ws = new WebSocket(url)
+
+      this.connectTimeout = setTimeout(() => {
+        if (this.state !== 'connected') {
+          this.log('Handshake timeout')
+          this.ws?.close(4408, 'Connection timeout')
+        }
+      }, this.options.connectionTimeoutMs)
       
       this.ws.onopen = () => {
         this.log('Connection opened')
@@ -119,6 +130,11 @@ export class KalzeChannel implements Channel {
    * Handle connection established
    */
   private handleConnectionEstablished(data: ConnectionEstablished): void {
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
+
     this.socketId = data.socketId
     this.state = 'connected'
     this.reconnectAttempts = 0
@@ -128,6 +144,7 @@ export class KalzeChannel implements Channel {
     
     this.emit('connected', data)
     this.emit('state:change', { state: this.state })
+    this.flushQueue()
     
     this.log(`Connected with socket ID: ${this.socketId}`)
   }
@@ -144,6 +161,10 @@ export class KalzeChannel implements Channel {
     }
     
     this.stopHeartbeat()
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
     this.ws = null
     this.socketId = null
     this.state = 'disconnected'
@@ -202,6 +223,23 @@ export class KalzeChannel implements Channel {
       clearInterval(this.heartbeatInterval)
       this.heartbeatInterval = null
     }
+  }
+
+  private flushQueue(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return
+    if (this.queuedMessages.length === 0) return
+
+    for (const queued of this.queuedMessages) {
+      this.ws.send(JSON.stringify({
+        event: 'client:event',
+        data: queued.event === 'client:event'
+          ? queued.data
+          : { event: queued.event, data: queued.data },
+      }))
+    }
+
+    this.log(`Flushed ${this.queuedMessages.length} queued message(s)`)
+    this.queuedMessages = []
   }
   
   /**
@@ -308,14 +346,25 @@ export class KalzeChannel implements Channel {
   /**
    * Send a client event to the channel
    */
-  trigger<T = unknown>(data: T): void {
+  trigger<T = unknown>(eventOrData: string | T, maybeData?: T): void {
+    const hasExplicitEvent = typeof eventOrData === 'string' && arguments.length >= 2
+    const event = hasExplicitEvent ? eventOrData : 'client:event'
+    const data = hasExplicitEvent ? maybeData : eventOrData
+
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify({
         event: 'client:event',
-        data,
+        data: event === 'client:event' ? data : { event, data },
       }))
     } else {
-      this.log('Cannot trigger event: not connected')
+      if (this.queuedMessages.length >= this.options.maxQueuedMessages) {
+        this.log('Dropping queued message: queue is full')
+        this.emit('error', { message: 'Message queue is full before connection' })
+        return
+      }
+
+      this.queuedMessages.push({ event, data })
+      this.log('Queued message: not connected yet')
     }
   }
   
@@ -327,6 +376,10 @@ export class KalzeChannel implements Channel {
       clearTimeout(this.reconnectTimeout)
       this.reconnectTimeout = null
     }
+    if (this.connectTimeout) {
+      clearTimeout(this.connectTimeout)
+      this.connectTimeout = null
+    }
     
     this.stopHeartbeat()
     
@@ -337,6 +390,7 @@ export class KalzeChannel implements Channel {
     
     this.socketId = null
     this.state = 'disconnected'
+    this.queuedMessages = []
     this.eventListeners.clear()
   }
   

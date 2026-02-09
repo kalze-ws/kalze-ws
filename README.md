@@ -51,6 +51,8 @@ const kalze = new Kalze({
   maxReconnectAttempts: 10,       // Max reconnect attempts
   reconnectDelay: 1000,           // Base delay between reconnects (ms)
   debug: false,                   // Enable debug logging
+  connectionTimeoutMs: 10000,     // Handshake timeout
+  maxQueuedMessages: 100,         // Queue while connecting
 })
 ```
 
@@ -96,11 +98,14 @@ channel.disconnect()
 Send events to other clients on the same channel:
 
 ```typescript
-channel.trigger({
+channel.trigger('cursor-move', {
   type: 'cursor-move',
   x: 100,
   y: 200
 })
+
+// Legacy signature is also supported:
+channel.trigger({ any: 'payload' })
 ```
 
 ### Connection State
@@ -141,6 +146,27 @@ channel.on('reconnect:failed', ({ attempts }) => {})
 // Error (includes error code when applicable)
 channel.on('error', ({ code, message }) => {
   console.error(code, message)
+})
+```
+
+## Production Notes
+
+```typescript
+// Wait for connection before critical operations
+channel.on('connected', () => {
+  channel.trigger('app:ready', { ts: Date.now() })
+})
+
+// Observe reconnect loop
+channel.on('reconnecting', ({ attempt, delay }) => {
+  console.log(`Reconnect #${attempt} in ${delay}ms`)
+})
+
+// Handle auth/limit errors
+channel.on('error', ({ code, message }) => {
+  if (code === 4403 || code === 4401 || code === 4408) {
+    console.error('Fatal connection error:', message)
+  }
 })
 ```
 
